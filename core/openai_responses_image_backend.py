@@ -219,7 +219,7 @@ class OpenAIResponsesImageBackend:
                 else self._build_generate_input(prompt)
             ),
             "tools": self._build_tools(size=size, resolution=resolution),
-            "tool_choice": "auto",
+            "tool_choice": "required",
         }
         payload.update(self.extra_body)
         payload.update(extra_body or {})
