@@ -175,18 +175,8 @@ class OpenAIResponsesImageBackend:
         return [tool]
 
     @staticmethod
-    def _build_generate_input(prompt: str) -> list[dict]:
-        return [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": str(prompt or ""),
-                    }
-                ],
-            }
-        ]
+    def _build_generate_input(prompt: str) -> str:
+        return str(prompt or "")
 
     @staticmethod
     def _build_edit_input(prompt: str, images: list[bytes]) -> list[dict]:
@@ -229,7 +219,7 @@ class OpenAIResponsesImageBackend:
                 else self._build_generate_input(prompt)
             ),
             "tools": self._build_tools(size=size, resolution=resolution),
-            "tool_choice": {"type": "image_generation"},
+            "tool_choice": "auto",
         }
         payload.update(self.extra_body)
         payload.update(extra_body or {})
@@ -337,6 +327,20 @@ class OpenAIResponsesImageBackend:
             for item in obj:
                 yield from self._iter_image_candidates(item)
 
+    def _iter_image_generation_results(self, response: object):
+        if not isinstance(response, dict):
+            return
+        output = response.get("output")
+        if not isinstance(output, list):
+            return
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("type") or "") != "image_generation_call":
+                continue
+            if item.get("result"):
+                yield from self._iter_image_candidates(item.get("result"))
+
     @staticmethod
     def _response_debug_snippet(response: object) -> str:
         def scrub(value: object) -> object:
@@ -390,7 +394,11 @@ class OpenAIResponsesImageBackend:
 
     async def _save_response_image(self, response: dict) -> Path:
         response = await self._resolve_awaitable(response)
-        for candidate in self._iter_image_candidates(response):
+        candidates = list(self._iter_image_generation_results(response))
+        if not candidates:
+            candidates = list(self._iter_image_candidates(response))
+
+        for candidate in candidates:
             ref = self._extract_ref_from_text(str(candidate or "").strip())
             if not ref:
                 ref = str(candidate or "").strip()
