@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import inspect
+import json
 import re
 import time
 from pathlib import Path
@@ -18,6 +19,12 @@ from .image_format import decode_base64_image_payload, guess_image_mime_and_ext
 
 _RESPONSES_SUFFIX_RE = re.compile(r"/(?:v1/)?responses/?$", re.IGNORECASE)
 _SUPPORTED_IMAGE_TOOL_SIZES = {"1024x1024", "1536x1024", "1024x1536"}
+_DATA_IMAGE_RE = re.compile(r"(data:image/[^\s)\"']+)", re.IGNORECASE)
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)")
+_IMAGE_URL_RE = re.compile(
+    r"(https?://[^\s<>\"')\]]+?\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s<>\"')\]]*)?)",
+    re.IGNORECASE,
+)
 
 
 def normalize_responses_base_url(raw: str) -> str:
@@ -222,6 +229,7 @@ class OpenAIResponsesImageBackend:
                 else self._build_generate_input(prompt)
             ),
             "tools": self._build_tools(size=size, resolution=resolution),
+            "tool_choice": {"type": "image_generation"},
         }
         payload.update(self.extra_body)
         payload.update(extra_body or {})
@@ -292,21 +300,36 @@ class OpenAIResponsesImageBackend:
         if isinstance(obj, dict):
             item_type = str(obj.get("type") or "").strip()
             if item_type == "image_generation_call":
-                for key in ("result", "image", "data", "url", "image_url", "b64_json"):
+                for key in (
+                    "result",
+                    "image",
+                    "data",
+                    "url",
+                    "image_url",
+                    "b64_json",
+                    "b64",
+                    "base64",
+                    "partial_image_b64",
+                    "partial_image",
+                ):
                     if key in obj:
                         yield from self._iter_image_candidates(obj.get(key))
-                return
             for key in (
                 "b64_json",
+                "b64",
                 "base64",
                 "image_base64",
                 "image_b64",
+                "partial_image_b64",
+                "partial_image",
                 "url",
                 "image_url",
+                "file_url",
+                "text",
             ):
                 if key in obj:
                     yield from self._iter_image_candidates(obj.get(key))
-            for key in ("output", "content", "result", "data", "images"):
+            for key in ("output", "content", "result", "data", "images", "message"):
                 if key in obj:
                     yield from self._iter_image_candidates(obj.get(key))
             return
@@ -314,10 +337,63 @@ class OpenAIResponsesImageBackend:
             for item in obj:
                 yield from self._iter_image_candidates(item)
 
+    @staticmethod
+    def _response_debug_snippet(response: object) -> str:
+        def scrub(value: object) -> object:
+            if isinstance(value, dict):
+                out: dict = {}
+                for key, inner in value.items():
+                    key_text = str(key)
+                    if key_text.lower() in {
+                        "result",
+                        "b64_json",
+                        "b64",
+                        "base64",
+                        "image_base64",
+                        "image_b64",
+                        "partial_image_b64",
+                        "image_url",
+                    }:
+                        text = str(inner or "")
+                        out[key_text] = f"<redacted len={len(text)}>"
+                    else:
+                        out[key_text] = scrub(inner)
+                return out
+            if isinstance(value, list):
+                return [scrub(item) for item in value[:6]]
+            if isinstance(value, str) and len(value) > 300:
+                return f"{value[:300]}..."
+            return value
+
+        try:
+            return json.dumps(scrub(response), ensure_ascii=False)[:1200]
+        except Exception:
+            return str(response)[:1200]
+
+    @staticmethod
+    def _extract_ref_from_text(text: str) -> str:
+        s = str(text or "").strip()
+        if not s:
+            return ""
+        if s.startswith(("http://", "https://", "data:image/", "base64://")):
+            return s
+        m = _MARKDOWN_IMAGE_RE.search(s)
+        if m:
+            return m.group(1).strip().strip('"').strip("'")
+        m = _DATA_IMAGE_RE.search(s)
+        if m:
+            return m.group(1).strip()
+        m = _IMAGE_URL_RE.search(s)
+        if m:
+            return m.group(1).strip()
+        return ""
+
     async def _save_response_image(self, response: dict) -> Path:
         response = await self._resolve_awaitable(response)
         for candidate in self._iter_image_candidates(response):
-            ref = str(candidate or "").strip()
+            ref = self._extract_ref_from_text(str(candidate or "").strip())
+            if not ref:
+                ref = str(candidate or "").strip()
             if not ref:
                 continue
             if ref.startswith(("http://", "https://")):
@@ -330,7 +406,9 @@ class OpenAIResponsesImageBackend:
                     return await self.imgr.save_image(decode_base64_image_payload(ref))
                 except Exception:
                     continue
-        raise RuntimeError("responses 未返回 image_generation_call.result 图片数据")
+        snippet = self._response_debug_snippet(response)
+        logger.warning("[ResponsesImage] 未解析到图片，响应摘要: %s", snippet)
+        raise RuntimeError("responses 未返回图片数据，请检查响应摘要")
 
     async def generate(
         self,

@@ -142,6 +142,34 @@ class OpenAIResponsesImageBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out_path, Path("/tmp/downloaded.png"))
         self.assertEqual(imgr.downloaded_urls, ["https://cdn.example.com/out.png"])
 
+    async def test_save_response_image_extracts_markdown_url_from_text(self):
+        mod = _load_module()
+        imgr = _DummyImageManager()
+        backend = mod.OpenAIResponsesImageBackend(
+            imgr=imgr,
+            base_url="https://anyrouter.top/v1",
+            api_keys=["test-key"],
+        )
+
+        out_path = await backend._save_response_image(
+            {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "done: ![image](https://cdn.example.com/final.png)",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(out_path, Path("/tmp/downloaded.png"))
+        self.assertEqual(imgr.downloaded_urls, ["https://cdn.example.com/final.png"])
+
 
 class OpenAIResponsesPayloadTests(unittest.TestCase):
     def test_normalizes_responses_url(self):
@@ -175,6 +203,7 @@ class OpenAIResponsesPayloadTests(unittest.TestCase):
 
         self.assertEqual(payload["model"], "gpt-5.3-codex")
         self.assertEqual(payload["tools"], [{"type": "image_generation", "size": "1536x1024"}])
+        self.assertEqual(payload["tool_choice"], {"type": "image_generation"})
         self.assertEqual(payload["input"][0]["content"][0]["type"], "input_text")
 
     def test_build_edit_payload_embeds_input_images(self):
