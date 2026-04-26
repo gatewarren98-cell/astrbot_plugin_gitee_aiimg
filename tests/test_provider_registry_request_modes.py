@@ -114,8 +114,8 @@ def _load_module():
         OpenAIFullURLBackend=_StubBackend,
     )
     _install_stub_module(
-        f"{CORE_PACKAGE_NAME}.openai_responses_image_backend",
-        OpenAIResponsesImageBackend=_StubBackend,
+        f"{CORE_PACKAGE_NAME}.openai_gpt_image_backend",
+        OpenAIGPTImageBackend=_StubBackend,
     )
     _install_stub_module(
         f"{CORE_PACKAGE_NAME}.vertex_ai_anonymous_backend",
@@ -295,19 +295,21 @@ class ProviderRegistryRequestModeTests(unittest.TestCase):
             ],
         )
 
-
-    def test_registry_builds_anyrouter_responses_backend(self):
+    def test_registry_builds_gpt_image_backend(self):
         mod = _load_module()
         registry = mod.ProviderRegistry(
             config={
                 "providers": [
                     {
-                        "id": "anyrouter_codex",
-                        "__template_key": "anyrouter_responses",
-                        "base_url": "https://anyrouter.top/v1",
+                        "id": "gpt-image",
+                        "__template_key": "openai_gpt_image",
+                        "base_url": "https://api.openai.com/v1",
                         "api_keys": ["test-key"],
-                        "model": "gpt-5.3-codex",
-                        "default_size": "auto",
+                        "model": "gpt-image-2",
+                        "quality": "high",
+                        "output_format": "webp",
+                        "output_compression": 75,
+                        "moderation": "low",
                     }
                 ]
             },
@@ -315,12 +317,14 @@ class ProviderRegistryRequestModeTests(unittest.TestCase):
             data_dir=Path("/tmp"),
         )
 
-        backend = registry.get_backend("anyrouter_codex")
+        backend = registry.get_backend("gpt-image")
 
-        self.assertEqual(backend.kwargs["base_url"], "https://anyrouter.top/v1")
-        self.assertEqual(backend.kwargs["api_keys"], ["test-key"])
-        self.assertEqual(backend.kwargs["default_model"], "gpt-5.3-codex")
-        self.assertEqual(backend.kwargs["default_size"], "auto")
+        self.assertEqual(backend.kwargs["default_model"], "gpt-image-2")
+        self.assertEqual(backend.kwargs["quality"], "high")
+        self.assertEqual(backend.kwargs["output_format"], "webp")
+        self.assertEqual(backend.kwargs["output_compression"], 75)
+        self.assertEqual(backend.kwargs["moderation"], "low")
+
 
 if __name__ == "__main__":
     unittest.main()

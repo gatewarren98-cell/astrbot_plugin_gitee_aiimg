@@ -182,7 +182,14 @@
               "jpg",
               "jpeg",
               "png",
-              "webp"
+              "webp",
+              ".jpg",
+              ".jpeg",
+              ".png",
+              ".webp",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
             ]
           },
           "use_edit_chain_when_empty": {
@@ -776,64 +783,42 @@
           }
         }
       },
-      "anyrouter_responses": {
-        "name": "AnyRouter Responses",
-        "description": "使用 AnyRouter /v1/responses + image_generation 工具，默认模型 gpt-5.3-codex。",
-        "hint": "适用于 https://anyrouter.top/v1/responses；支持文生图和带参考图改图。",
+      "openai_gpt_image": {
+        "name": "OpenAI GPT Image",
+        "description": "OpenAI gpt-image-2 专用 Images API（文生图 + 多参考图改图）。",
+        "hint": "按 gpt-image-2 接口直连 /v1/images/generations 与 /v1/images/edits；改图会逐张上传 image[]，适合自拍参考照。",
         "items": {
           "id": {
             "type": "string",
             "description": "服务商 ID（唯一）",
-            "default": "anyrouter_codex"
+            "default": "openai_gpt_image"
           },
           "label": {
             "type": "string",
             "description": "显示名称（可选）",
-            "default": "AnyRouter GPT-5.3 Codex"
+            "default": ""
           },
           "base_url": {
             "type": "string",
-            "description": "Responses Base URL",
-            "hint": "可填 https://anyrouter.top 或 https://anyrouter.top/v1；插件会请求 /v1/responses。",
-            "default": "https://anyrouter.top/v1"
+            "description": "API Base URL",
+            "hint": "默认 https://api.openai.com/v1；也可填兼容网关的 https://host 或 https://host/v1。",
+            "default": "https://api.openai.com/v1"
           },
           "api_keys": {
             "type": "list",
-            "description": "AnyRouter API Key 池",
+            "description": "API Key 池",
             "default": [],
             "obvious_hint": true
           },
           "model": {
             "type": "string",
             "description": "模型名称",
-            "default": "gpt-5.3-codex"
+            "default": "gpt-image-2"
           },
           "supports_edit": {
             "type": "bool",
-            "description": "支持改图（Responses input_image）",
+            "description": "支持改图 (images.edits)",
             "default": true
-          },
-          "generate_request_mode": {
-            "type": "string",
-            "description": "文生图请求模式",
-            "options": [
-              "auto",
-              "stream",
-              "non_stream"
-            ],
-            "hint": "Responses 后端当前使用非流式单路径；保持 auto 即可。",
-            "default": "auto"
-          },
-          "edit_request_mode": {
-            "type": "string",
-            "description": "改图请求模式",
-            "options": [
-              "auto",
-              "stream",
-              "non_stream"
-            ],
-            "hint": "Responses 后端当前使用非流式单路径；保持 auto 即可。",
-            "default": "auto"
           },
           "timeout": {
             "type": "int",
@@ -848,25 +833,68 @@
           "proxy_url": {
             "type": "string",
             "description": "代理地址（可选）",
-            "hint": "示例：http://127.0.0.1:7890 或 socks5://127.0.0.1:7890",
             "default": ""
           },
           "default_size": {
             "type": "string",
             "description": "默认输出尺寸",
-            "hint": "auto 表示不强制尺寸；也可填 1024x1024 / 1536x1024 / 1024x1536。",
+            "hint": "gpt-image-2 支持 auto，也可填具体宽高如 1024x1024。",
+            "default": "auto"
+          },
+          "quality": {
+            "type": "string",
+            "description": "生成质量",
             "options": [
               "auto",
-              "1024x1024",
-              "1536x1024",
-              "1024x1536"
+              "low",
+              "medium",
+              "high"
             ],
             "default": "auto"
           },
+          "output_format": {
+            "type": "string",
+            "description": "输出格式",
+            "options": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "default": "png"
+          },
+          "output_compression": {
+            "type": "int",
+            "description": "输出压缩率",
+            "hint": "仅 output_format=jpeg/webp 时发送；留默认即可。",
+            "slider": {
+              "min": 0,
+              "max": 100,
+              "step": 1
+            },
+            "default": 80
+          },
+          "moderation": {
+            "type": "string",
+            "description": "审核强度",
+            "options": [
+              "auto",
+              "low"
+            ],
+            "default": "auto"
+          },
+          "max_input_images": {
+            "type": "int",
+            "description": "改图最多上传参考图数",
+            "slider": {
+              "min": 1,
+              "max": 16,
+              "step": 1
+            },
+            "default": 16
+          },
           "extra_body": {
             "type": "object",
-            "description": "额外 Responses 请求体（高级）",
-            "hint": "会合并到 /v1/responses JSON 顶层，可用于覆盖 tools 或增加 provider 支持的字段。",
+            "description": "额外请求参数（高级）",
             "items": {},
             "default": {}
           }

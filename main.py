@@ -58,7 +58,11 @@ from .core.gitee_sizes import (
     normalize_size_text,
     resolve_ratio_size,
 )
-from .core.image_format import decode_base64_image_payload, guess_image_mime_and_ext
+from .core.image_format import (
+    decode_base64_image_payload,
+    guess_image_mime_and_ext,
+    guess_image_mime_and_ext_strict,
+)
 from .core.image_manager import ImageManager
 from .core.nanobanana import NanoBananaService
 from .core.provider_registry import ProviderRegistry
@@ -1456,6 +1460,15 @@ class GiteeAIImagePlugin(Star):
         - /自拍 <提示词>
         - 可附带多张参考图（衣服/姿势/场景）作为额外参考
         """
+        if self._is_direct_command_message(
+            event, ("自拍参考",)
+        ) or self._is_framework_direct_command_text(
+            getattr(event, "message_str", ""), ("自拍参考",)
+        ):
+            arg = self._extract_extra_prompt(event, "自拍参考")
+            await self._handle_selfie_reference_command(event, arg)
+            event.stop_event()
+            return
         if not self._is_selfie_enabled():
             await mark_failed(event)
             return
@@ -1489,87 +1502,21 @@ class GiteeAIImagePlugin(Star):
         - /自拍参考 删除
         """
         event.should_call_llm(True)
-        if not self._is_selfie_enabled():
-            await mark_failed(event)
-            return
         arg = self._extract_extra_prompt(event, "自拍参考")
-        action, _, _rest = (arg or "").strip().partition(" ")
-        action = action.strip().lower()
-
-        if not action or action in {"帮助", "help", "h"}:
-            msg = (
-                "📸 自拍参考照\n"
-                "━━━━━━━━━━━━━━\n"
-                "设置：发送图片 + /自拍参考 设置\n"
-                "查看：/自拍参考 查看\n"
-                "删除：/自拍参考 删除\n"
-                "━━━━━━━━━━━━━━\n"
-                "生成自拍：/自拍 <提示词>\n"
-                "可附带额外参考图（衣服/姿势/场景）"
-            )
-            yield event.plain_result(msg)
-            return
-
-        if action in {"设置", "set"}:
-            await self._set_selfie_reference(event)
-            return
-
-        if action in {"查看", "show", "看"}:
-            async for result in self._show_selfie_reference(event):
-                yield result
-            return
-
-        if action in {"删除", "del", "delete"}:
-            await self._delete_selfie_reference(event)
-            return
-
-        await mark_failed(event)
+        await self._handle_selfie_reference_command(event, arg)
 
     @filter.regex(r"[/!！.。．]自拍参考(\s|$)", priority=-10)
     async def selfie_reference_regex_fallback(self, event: AstrMessageEvent):
         """兼容“图片在前、文字在后”的消息：确保 /自拍参考 能触发。"""
         msg = (event.message_str or "").strip()
-        if self._is_direct_command_message(event, ("自拍参考",)):
-            return
-        if not self._is_selfie_enabled():
-            await mark_failed(event)
-            event.stop_event()
+        if self._is_direct_command_message(
+            event, ("自拍参考",)
+        ) or self._is_framework_direct_command_text(
+            getattr(event, "message_str", ""), ("自拍参考",)
+        ):
             return
         arg = self._extract_command_arg_anywhere(msg, "自拍参考")
-        action, _, _rest = (arg or "").strip().partition(" ")
-        action = action.strip().lower()
-
-        if not action or action in {"帮助", "help", "h"}:
-            yield event.plain_result(
-                "📸 自拍参考照\n"
-                "━━━━━━━━━━━━━━\n"
-                "设置：发送图片 + /自拍参考 设置\n"
-                "查看：/自拍参考 查看\n"
-                "删除：/自拍参考 删除\n"
-                "━━━━━━━━━━━━━━\n"
-                "生成自拍：/自拍 <提示词>\n"
-                "可附带额外参考图（衣服/姿势/场景）"
-            )
-            event.stop_event()
-            return
-
-        if action in {"设置", "set"}:
-            await self._set_selfie_reference(event)
-            event.stop_event()
-            return
-
-        if action in {"查看", "show", "看"}:
-            async for r in self._show_selfie_reference(event):
-                yield r
-            event.stop_event()
-            return
-
-        if action in {"删除", "del", "delete"}:
-            await self._delete_selfie_reference(event)
-            event.stop_event()
-            return
-
-        await mark_failed(event)
+        await self._handle_selfie_reference_command(event, arg)
         event.stop_event()
 
     # ==================== 视频生成 ====================
@@ -3092,6 +3039,61 @@ class GiteeAIImagePlugin(Star):
     def _get_selfie_conf(self) -> dict:
         return self._get_feature("selfie")
 
+    @staticmethod
+    def _selfie_reference_help_text() -> str:
+        return (
+            "📸 自拍参考照\n"
+            "━━━━━━━━━━━━━━\n"
+            "设置：发送图片 + /自拍参考 设置\n"
+            "查看：/自拍参考 查看\n"
+            "删除：/自拍参考 删除\n"
+            "━━━━━━━━━━━━━━\n"
+            "生成自拍：/自拍 <提示词>\n"
+            "可附带额外参考图（衣服/姿势/场景）"
+        )
+
+    async def _send_plain_text(self, event: AstrMessageEvent, text: str) -> None:
+        text = str(text or "").strip()
+        if not text:
+            return
+        try:
+            await event.send(event.plain_result(text))
+        except Exception as exc:
+            logger.warning("[selfie_ref] plain reply failed: %s", exc)
+
+    async def _handle_selfie_reference_command(
+        self, event: AstrMessageEvent, arg: str
+    ) -> None:
+        if not self._is_selfie_enabled():
+            await mark_failed(event)
+            await self._send_plain_text(event, self._selfie_disabled_message())
+            return
+
+        action, _, _rest = (arg or "").strip().partition(" ")
+        action = action.strip().lower()
+
+        if not action or action in {"帮助", "help", "h"}:
+            await self._send_plain_text(event, self._selfie_reference_help_text())
+            return
+
+        if action in {"设置", "set"}:
+            await self._set_selfie_reference(event)
+            return
+
+        if action in {"查看", "show", "看"}:
+            await self._show_selfie_reference(event)
+            return
+
+        if action in {"删除", "del", "delete"}:
+            await self._delete_selfie_reference(event)
+            return
+
+        await mark_failed(event)
+        await self._send_plain_text(
+            event,
+            "未知自拍参考照操作。可用：/自拍参考 设置、/自拍参考 查看、/自拍参考 删除",
+        )
+
     async def _ensure_tool_image_cache_dir(self) -> None:
         tool_image_dir = Path(get_astrbot_temp_path()) / "tool_images"
         await asyncio.to_thread(tool_image_dir.mkdir, parents=True, exist_ok=True)
@@ -3162,11 +3164,47 @@ class GiteeAIImagePlugin(Star):
             self_id = ""
         return f"bot_selfie_{self_id}" if self_id else "bot_selfie"
 
+    @staticmethod
+    def _iter_config_file_refs(value: Any) -> list[str]:
+        if value in (None, ""):
+            return []
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            if text.startswith("[") or text.startswith("{"):
+                try:
+                    parsed = json.loads(text)
+                except Exception:
+                    parsed = None
+                if parsed is not None:
+                    return GiteeAIImagePlugin._iter_config_file_refs(parsed)
+            return [text]
+        if isinstance(value, dict):
+            refs: list[str] = []
+            for key in ("path", "file", "url", "name", "value"):
+                refs.extend(GiteeAIImagePlugin._iter_config_file_refs(value.get(key)))
+            return refs
+        if isinstance(value, (list, tuple, set)):
+            refs: list[str] = []
+            for item in value:
+                refs.extend(GiteeAIImagePlugin._iter_config_file_refs(item))
+            return refs
+        return [str(value).strip()] if str(value or "").strip() else []
+
     def _resolve_data_rel_path(self, rel_path: str) -> Path | None:
-        """将 data_dir 下的相对路径解析为绝对路径，并阻止路径穿越。"""
+        """将配置中的文件路径解析为本地路径。"""
         if not isinstance(rel_path, str) or not rel_path.strip():
             return None
-        rel = rel_path.replace("\\", "/").lstrip("/")
+        raw = rel_path.strip()
+        if raw.startswith("file:///"):
+            raw = raw[8:]
+
+        candidate = Path(raw)
+        if candidate.is_absolute():
+            return candidate.resolve(strict=False)
+
+        rel = raw.replace("\\", "/").lstrip("/")
         parts = [p for p in rel.split("/") if p]
         if any(p in {".", ".."} for p in parts):
             return None
@@ -3178,19 +3216,26 @@ class GiteeAIImagePlugin(Star):
             return None
         return target
 
+    @staticmethod
+    def _is_supported_image_path(path: Path) -> bool:
+        try:
+            with Path(path).open("rb") as f:
+                head = f.read(32)
+        except Exception:
+            return False
+        return guess_image_mime_and_ext_strict(head) is not None
+
     def _get_config_selfie_reference_paths(self) -> list[Path]:
         """从 WebUI file 配置项读取参考图路径。"""
         conf = self._get_selfie_conf()
-        ref_list = conf.get("reference_images", [])
-        if not isinstance(ref_list, list):
-            return []
+        ref_list = self._iter_config_file_refs(conf.get("reference_images", []))
 
         paths: list[Path] = []
         for rel_path in ref_list:
             p = self._resolve_data_rel_path(str(rel_path))
             if not p:
                 continue
-            if p.is_file():
+            if p.is_file() and self._is_supported_image_path(p):
                 paths.append(p)
         return paths
 
@@ -3512,11 +3557,16 @@ class GiteeAIImagePlugin(Star):
         image_segs = await get_images_from_event(event, include_avatar=False)
         if not image_segs:
             await mark_failed(event)
+            await self._send_plain_text(
+                event,
+                "未检测到图片。请发送或引用图片，并使用 /自拍参考 设置。",
+            )
             return
 
         bytes_images = await self._image_segs_to_bytes(image_segs)
         if not bytes_images:
             await mark_failed(event)
+            await self._send_plain_text(event, "图片读取失败，未保存自拍参考照。")
             return
 
         # 限制数量，避免一次塞太多
@@ -3525,12 +3575,15 @@ class GiteeAIImagePlugin(Star):
 
         store_key = self._get_selfie_ref_store_key(event)
         try:
-            await self.refs.set(store_key, bytes_images)
-        except Exception:
+            saved = await self.refs.set(store_key, bytes_images)
+        except Exception as exc:
+            logger.warning("[自拍参考] 保存失败: %s", exc)
             await mark_failed(event)
+            await self._send_plain_text(event, "自拍参考照保存失败，请稍后重试。")
             return
 
         await mark_success(event)
+        await self._send_plain_text(event, f"已保存 {saved} 张自拍参考照。")
 
     async def _show_selfie_reference(self, event: AstrMessageEvent):
         if not self._is_selfie_enabled():
@@ -3540,13 +3593,18 @@ class GiteeAIImagePlugin(Star):
         paths, source = await self._get_selfie_reference_paths(event)
         if not paths:
             await mark_failed(event)
+            await self._send_plain_text(
+                event,
+                "当前没有自拍参考照。请先发送或引用图片，并使用 /自拍参考 设置。",
+            )
             return
 
         # 最多回显 5 张，避免刷屏
         max_show = 5
         show_paths = paths[:max_show]
-        yield event.chain_result([Image.fromFileSystem(str(p)) for p in show_paths])
-        yield event.plain_result(
+        await event.send(event.chain_result([Image.fromFileSystem(str(p)) for p in show_paths]))
+        await self._send_plain_text(
+            event,
             f"📌 当前自拍参考照来源：{source}，共 {len(paths)} 张（已展示 {len(show_paths)} 张）"
         )
 
@@ -3566,5 +3624,7 @@ class GiteeAIImagePlugin(Star):
 
         if deleted:
             await mark_success(event)
+            await self._send_plain_text(event, "已删除通过命令保存的自拍参考照。")
         else:
             await mark_failed(event)
+            await self._send_plain_text(event, "没有通过命令保存的自拍参考照可删除。")

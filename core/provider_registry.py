@@ -17,7 +17,7 @@ from .jimeng_api_backend import JimengApiBackend
 from .openai_chat_image_backend import OpenAIChatImageBackend
 from .openai_compat_backend import OpenAICompatBackend
 from .openai_full_url_backend import OpenAIFullURLBackend
-from .openai_responses_image_backend import OpenAIResponsesImageBackend
+from .openai_gpt_image_backend import OpenAIGPTImageBackend
 from .vertex_ai_anonymous_backend import (
     VertexAIAnonymousBackend,
     VertexAIAnonymousSettings,
@@ -50,9 +50,10 @@ _TEMPLATE_KEY_ALIASES: dict[str, str] = {
     "grok2api_video": "grok2api_video",
     "openai": "openai_images",
     "openai_compat": "openai_images",
+    "gpt_image": "openai_gpt_image",
+    "gpt_image_2": "openai_gpt_image",
+    "gpt-image-2": "openai_gpt_image",
     "openai_full_url": "openai_full_url_images",
-    "anyrouter": "anyrouter_responses",
-    "openai_responses": "openai_responses_images",
     "gemini_openai": "gemini_openai_images",
     "modelscope": "modelscope_openai_images",
 }
@@ -71,9 +72,8 @@ _REQUEST_MODE_PROVIDER_TEMPLATES = {
     "modelscope_openai_images",
     "openai_chat",
     "openai_full_url_images",
+    "openai_gpt_image",
     "openai_images",
-    "openai_responses_images",
-    "anyrouter_responses",
     "vertex_ai_anonymous",
 }
 
@@ -140,6 +140,8 @@ class ProviderRegistry:
             return "gemini_openai_images"
         if pid in {"openai", "openai_compat", "openai_images"}:
             return "openai_images"
+        if pid in {"openai_gpt_image", "gpt_image", "gpt_image_2", "gpt-image-2"}:
+            return "openai_gpt_image"
         if pid in {"grok_images", "grok"}:
             return "grok_images"
         if pid in {"gitee"}:
@@ -154,10 +156,6 @@ class ProviderRegistry:
             return "openai_chat"
         if pid in {"openai_full_url", "openai_full_url_images"}:
             return "openai_full_url_images"
-        if pid in {"openai_responses", "openai_responses_images"}:
-            return "openai_responses_images"
-        if pid in {"anyrouter", "anyrouter_responses", "anyrouter_codex"}:
-            return "anyrouter_responses"
         if pid in {"modelscope", "modelscope_openai_images"}:
             return "modelscope_openai_images"
         if pid in {"gemini_openai_chat"}:
@@ -324,8 +322,7 @@ class ProviderRegistry:
                 "gitee_images",
                 "gemini_openai_images",
                 "modelscope_openai_images",
-                "openai_responses_images",
-                "anyrouter_responses",
+                "openai_gpt_image",
             }:
                 if not str(item.get("base_url") or "").strip():
                     errors.append(f"provider '{provider_id}' missing base_url")
@@ -494,24 +491,6 @@ class ProviderRegistry:
                 proxy_url=str(conf.get("proxy_url") or "").strip() or None,
             )
 
-        if template_key in {"openai_responses_images", "anyrouter_responses"}:
-            return OpenAIResponsesImageBackend(
-                imgr=self._imgr,
-                base_url=str(conf.get("base_url") or "https://anyrouter.top/v1").strip(),
-                api_keys=[
-                    str(x).strip()
-                    for x in _as_list(conf.get("api_keys"))
-                    if str(x).strip()
-                ],
-                timeout=int(conf.get("timeout") or 300),
-                max_retries=int(conf.get("max_retries") or 2),
-                default_model=str(conf.get("model") or "gpt-5.3-codex").strip(),
-                default_size=str(conf.get("default_size") or "auto").strip(),
-                supports_edit=bool(conf.get("supports_edit", True)),
-                extra_body=_as_dict(conf.get("extra_body")) or None,
-                proxy_url=str(conf.get("proxy_url") or "").strip() or None,
-            )
-
         if template_key == "openai_full_url_images":
             return OpenAIFullURLBackend(
                 imgr=self._imgr,
@@ -609,6 +588,29 @@ class ProviderRegistry:
                 extra_body=extra_body or None,
                 allowed_sizes=GITEE_SUPPORTED_SIZES,
                 ratio_default_sizes=self._get_draw_ratio_default_sizes(),
+            )
+
+        if template_key == "openai_gpt_image":
+            return OpenAIGPTImageBackend(
+                imgr=self._imgr,
+                base_url=str(conf.get("base_url") or "https://api.openai.com/v1").strip(),
+                api_keys=[
+                    str(x).strip()
+                    for x in _as_list(conf.get("api_keys"))
+                    if str(x).strip()
+                ],
+                timeout=int(conf.get("timeout") or 300),
+                max_retries=int(conf.get("max_retries") or 2),
+                default_model=str(conf.get("model") or "gpt-image-2").strip(),
+                default_size=str(conf.get("default_size") or "auto").strip(),
+                quality=str(conf.get("quality") or "auto").strip(),
+                output_format=str(conf.get("output_format") or "png").strip(),
+                output_compression=conf.get("output_compression"),
+                moderation=str(conf.get("moderation") or "auto").strip(),
+                supports_edit=bool(conf.get("supports_edit", True)),
+                max_input_images=int(conf.get("max_input_images") or 16),
+                extra_body=_as_dict(conf.get("extra_body")) or None,
+                proxy_url=str(conf.get("proxy_url") or "").strip() or None,
             )
 
         if template_key == "gitee_async":

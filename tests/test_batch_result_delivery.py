@@ -293,8 +293,8 @@ def _load_module():
         OpenAIFullURLBackend=_StubBackend,
     )
     _install_stub_module(
-        f"{CORE_PACKAGE_NAME}.openai_responses_image_backend",
-        OpenAIResponsesImageBackend=_StubBackend,
+        f"{CORE_PACKAGE_NAME}.openai_gpt_image_backend",
+        OpenAIGPTImageBackend=_StubBackend,
     )
     _install_stub_module(
         f"{CORE_PACKAGE_NAME}.vertex_ai_anonymous_backend",
@@ -342,6 +342,7 @@ def _load_module():
         f"{CORE_PACKAGE_NAME}.image_format",
         decode_base64_image_payload=lambda *args, **kwargs: b"",
         guess_image_mime_and_ext=lambda *args, **kwargs: ("image/png", ".png"),
+        guess_image_mime_and_ext_strict=lambda *args, **kwargs: ("image/png", ".png"),
     )
     _install_stub_module(f"{CORE_PACKAGE_NAME}.image_manager", ImageManager=_StubService)
     _install_stub_module(f"{CORE_PACKAGE_NAME}.nanobanana", NanoBananaService=_StubService)

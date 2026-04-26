@@ -47,8 +47,8 @@
 - Gemini 原生 `generateContent`
 - Vertex AI Anonymous
 - OpenAI 兼容 `Images API`
+- OpenAI `gpt-image-2` 专用 Images API
 - OpenAI 兼容 `Chat` 出图解析
-- AnyRouter `Responses API`（`gpt-5.3-codex` + `image_generation` tool）
 - OpenAI 兼容完整路径
 - Flow2API
 - Grok / Grok2API
@@ -58,32 +58,20 @@
 
 一般选择建议：
 
+- 直连 OpenAI `gpt-image-2`，且需要多张参考图改图 / 自拍参考：用 `OpenAI GPT Image`
 - 标准 `POST /v1/images/generations` / `POST /v1/images/edits`：用 `OpenAI 兼容通用（Images）`
-- AnyRouter 的 `gpt-5.3-codex` 生图 / 改图：用 `AnyRouter Responses`
 - 只在 `chat.completions` 回复里回图片：用 `OpenAI 兼容（Chat 出图解析）`
 - 你的网关路径不是标准 `/v1/...`：用 `OpenAI 兼容-完整路径`
 - 直连 Gemini 官方：用 `Gemini 原生`
 
-AnyRouter 示例配置：
+`OpenAI GPT Image` 模板默认使用：
 
-```yaml
-providers:
-  - id: anyrouter_codex
-    __template_key: anyrouter_responses
-    base_url: https://anyrouter.top/v1
-    api_keys:
-      - sk-xxx
-    model: gpt-5.3-codex
-    default_size: auto
+- `base_url`: `https://api.openai.com/v1`
+- `model`: `gpt-image-2`
+- 文生图：`/v1/images/generations`
+- 改图：`/v1/images/edits`，多张参考图会按 `image[]` 逐张上传
 
-features:
-  draw:
-    chain:
-      - provider_id: anyrouter_codex
-  edit:
-    chain:
-      - provider_id: anyrouter_codex
-```
+把该 provider 的 `id` 填入 `features.draw.chain` 可用于文生图；填入 `features.edit.chain` 或 `features.selfie.chain` 可用于改图 / 自拍参考。
 
 ### 2. 再配 `features.*.chain`
 
